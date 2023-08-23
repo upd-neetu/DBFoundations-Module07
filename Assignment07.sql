@@ -3,7 +3,7 @@
 -- Author: NUpadhyay
 -- Desc: This file demonstrates how to use Functions
 -- Change Log: When,Who,What
--- 2017-01-01,NUpadhyay,Created File
+-- 2023-08-23,NUpadhyay,Created File
 --**************************************************************************--
 Begin Try
 	Use Master;
@@ -301,39 +301,24 @@ go
 -- Order the results by the Product and Date. 
 -- This new view must use your vProductInventories view.
 
-
-
-CREATE -- Drop
-VIEW vProductInventoriesWithPreviouMonthCounts 
-AS
-Select Top 100000
-ProductName
-,InventoryDate
-,InventoryCount
-,[PreviousMonthCount] = IIF(InventoryDate Like ('January%'), 0, IsNull(Lag(InventoryCount) Over (Order By ProductName, Year(InventoryDate)), 0) )
-From vProductInventories
--- Order By 1, 2, 3; -- This will sort alphabetically because it is Character data
--- Order By 1, Month(InventoryDate),3; This converts to an Integer
-ORDER BY 1, CAST(InventoryDate as Date),3;
-GO -- 60pts total
-
-IF EXISTS (SELECT * FROM sys.views WHERE name = 'vProductInventoriesWithPreviouMonthCounts')
-    DROP VIEW vProductInventoriesWithPreviouMonthCounts;
-GO
-
 CREATE VIEW vProductInventoriesWithPreviouMonthCounts AS
-SELECT TOP 5 *
+SELECT
     ProductName,
-    InventoryDate,
+    FormattedDate,
     InventoryCount,
-    CASE 
-        WHEN MONTH(InventoryDate) = 1 THEN 0
-        ELSE ISNULL(LAG(InventoryCount) OVER (ORDER BY ProductName, YEAR(InventoryDate)), 0)
-    END AS [PreviousMonthCount]
-FROM vProductInventories;
-GO
--- Check that it works: Select * From vProductInventoriesWithPreviousMonthCounts;
+    CASE
+        WHEN MONTH(prodInv.FormattedDate) = 1
+            THEN 0 
+            ELSE COALESCE(LAG(InventoryCount) OVER (PARTITION BY ProductName ORDER BY FormattedDate), 0)
+    END AS PreviousMonthCount
+FROM
+    vProductInventories AS prodInv;
+go
 
+SELECT *
+FROM vProductInventoriesWithPreviouMonthCounts
+ORDER BY ProductName, FormattedDate;
+go
 
 -- Question 7 (15% of pts): 
 -- CREATE a VIEW called vProductInventoriesWithPreviousMonthCountsWithKPIs.
@@ -341,59 +326,63 @@ GO
 -- The Previous Month Count is a KPI. The result can show only KPIs with a value of either 1, 0, or -1. 
 -- Display months with increased counts as 1, same counts as 0, and decreased counts as -1. 
 -- Varify that the results are ordered by the Product and Date.
-
 CREATE VIEW vProductInventoriesWithPreviousMonthCountsWithKPIs AS
-
-SELECT Column1, Column2, ProductName ...
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'vProductInventories';
-
+SELECT
     ProductName,
-    InventoryDate,
+    FormattedDate,
     InventoryCount,
-    LAG(InventoryCount) OVER (PARTITION BY ProductName ORDER BY InventoryDate) AS PreviousMonthCount,
-    CASE 
-        WHEN InventoryCount > LAG(InventoryCount) OVER (PARTITION BY ProductName ORDER BY InventoryDate) THEN 1
-        WHEN InventoryCount = LAG(InventoryCount) OVER (PARTITION BY ProductName ORDER BY InventoryDate) THEN 0
-        ELSE -1
+    PreviousMonthCount,
+    CASE
+        WHEN InventoryCount > PreviousMonthCount THEN 1    -- If the current count is greater than the previous month
+        WHEN InventoryCount = PreviousMonthCount THEN 0    -- If the counts are the same
+        ELSE -1                                           -- If the current count is less than the previous month
     END AS KPI
-FROM 
-    vProductInventories;
+FROM
+    vProductInventoriesWithPreviouMonthCounts;
+
 GO
 
-
+SELECT * 
+FROM vProductInventoriesWithPreviousMonthCountsWithKPIs
+ORDER BY ProductName, FormattedDate;
+GO 
 -- Important: This new view must use your vProductInventoriesWithPreviousMonthCounts view!
 -- Check that it works: Select * From vProductInventoriesWithPreviousMonthCountsWithKPIs;
-go
 
 -- Question 8 (25% of pts): 
 -- CREATE a User Defined Function (UDF) called fProductInventoriesWithPreviousMonthCountsWithKPIs.
--- Show columns for the Product names, Inventory Dates, Inventory Count, the Previous Month Count. 
+-- Show columns for the Product Names, Inventory Dates, Inventory Count, the Previous Month Count. 
 -- The Previous Month Count is a KPI. The result can show only KPIs with a value of either 1, 0, or -1. 
 -- Display months with increased counts as 1, same counts as 0, and decreased counts as -1. 
 -- The function must use the ProductInventoriesWithPreviousMonthCountsWithKPIs view.
 -- Varify that the results are ordered by the Product and Date.
-
-CREATE FUNCTION fProductInventoriesWithPreviousMonthCountsWithKPIs() 
+CREATE FUNCTION fProductInventoriesWithPreviousMonthCountsWithKPIs()
 RETURNS TABLE
 AS
 RETURN
 (
-  SELECT * 
-FROM INFORMATION_SCHEMA.VIEWS 
-WHERE TABLE_NAME = 'vProductInventoriesWithPreviousMonthCountsWithKPIs'
+    SELECT 
         ProductName,
-        InventoryDate,
+        FormattedDate,
         InventoryCount,
         PreviousMonthCount,
-        CASE 
-            WHEN InventoryCount > PreviousMonthCount THEN 1
-            WHEN InventoryCount = PreviousMonthCount THEN 0
-            ELSE -1
+        CASE
+            WHEN InventoryCount > PreviousMonthCount THEN 1    -- If the current count is greater than the previous month
+            WHEN InventoryCount = PreviousMonthCount THEN 0    -- If the counts are the same
+            ELSE -1                                           -- If the current count is less than the previous month
         END AS KPI
-    FROM vProductInventoriesWithPreviousMonthCountsWithKPIs
+    FROM 
+        vProductInventoriesWithPreviousMonthCountsWithKPIs
 );
+
 GO
+
+SELECT * 
+FROM dbo.fProductInventoriesWithPreviousMonthCountsWithKPIs()
+ORDER BY ProductName, FormattedDate;
+
+GO
+
 
 /* Check that it works:
 SELECT * FROM fProductInventoriesWithPreviousMonthCountsWithKPIs(1) Order By 1, 2,3;
